@@ -1,23 +1,18 @@
 export type Direction = 'up' | 'down' | 'left' | 'right';
 
-type GetDistanceFn = (a: DOMRect, b: DOMRect, dir: Direction) => number;
-
-interface FocusManagerOptions {
+interface FocusEngineOptions {
 	root: ParentNode;
-	getDistance: GetDistanceFn;
 }
 
-export class FocusManager {
+export class FocusEngine {
 	private readonly root: ParentNode;
-	private readonly getDistance: GetDistanceFn;
 
 	private readonly groupDataAttr = 'data-selectable-group';
 	private readonly itemDataAttr = 'data-selectable';
 	private readonly selectedDataAttr = 'data-selected';
 
-	constructor(options: FocusManagerOptions) {
+	constructor(options: FocusEngineOptions) {
 		this.root = options.root;
-		this.getDistance = options.getDistance;
 	}
 
 	nextFocus(dir: Direction) {
@@ -53,7 +48,7 @@ export class FocusManager {
 		dir: Direction,
 		selected: HTMLElement,
 		current: HTMLElement
-	) {
+	): HTMLElement | null {
 		const container =
 			current.parentElement?.closest<HTMLElement>(
 				`[${this.groupDataAttr}]`
@@ -78,7 +73,7 @@ export class FocusManager {
 						node.hasAttribute(this.groupDataAttr) ||
 						node.hasAttribute(this.itemDataAttr)
 					) {
-						const d = this.getDistance(
+						const d = FocusEngine.getDistance(
 							selectedBox,
 							node.getBoundingClientRect(),
 							dir
@@ -100,9 +95,11 @@ export class FocusManager {
 
 		if (closest) {
 			return closest as HTMLElement;
-		} else if (container === document.body) {
+		} else if (!this.root.contains(container)) {
+			// last layer, nothing else to search for
 			return null;
 		} else {
+			// go up one layer
 			return this._handleNextFocus(dir, selected, container);
 		}
 	}
@@ -115,25 +112,37 @@ export class FocusManager {
 	}
 
 	static getDistance(a: DOMRect, b: DOMRect, direction: Direction) {
-		if (direction === 'up' && a.top <= b.bottom) return Infinity;
-		if (direction === 'down' && a.bottom >= b.top) return Infinity;
-		if (direction === 'left' && a.left <= b.right) return Infinity;
-		if (direction === 'right' && a.right >= b.left) return Infinity;
+		const cx = (a.left + a.right) / 2;
+		const cy = (a.top + a.bottom) / 2;
 
-		const x = (a.left + a.right) / 2;
-		const y = (a.top + a.bottom) / 2;
+		let x: number;
+		let y: number;
 
-		if (direction === 'up' && a.left >= b.left && a.right <= b.right)
-			return Math.abs(y - b.bottom);
-		if (direction === 'down' && a.left >= b.left && a.right <= b.right)
-			return b.top - y;
-		if (direction === 'left' && a.top >= b.top && a.bottom <= b.bottom)
-			return x - b.right;
-		if (direction === 'right' && a.top >= b.top && a.bottom <= b.bottom)
-			return b.left - x;
+		switch (direction) {
+			case 'up':
+				if (a.top < b.bottom) return Infinity;
+				x = b.left > cx ? b.left : b.right < cx ? b.right : cx;
+				y = b.bottom;
+				break;
+			case 'down':
+				if (a.bottom > b.top) return Infinity;
+				x = b.left > cx ? b.left : b.right < cx ? b.right : cx;
+				y = b.top;
+				break;
+			case 'left':
+				if (a.left < b.right) return Infinity;
+				x = b.right;
+				y = b.top > cy ? b.top : b.bottom < cy ? b.bottom : cy;
+				break;
+			case 'right':
+				if (a.right > b.left) return Infinity;
+				x = b.left;
+				y = b.top > cy ? b.top : b.bottom < cy ? b.bottom : cy;
+				break;
+		}
 
-		const dx = Math.abs((a.left + a.right - b.left - b.right) / 2);
-		const dy = Math.abs((a.top + a.bottom - b.top - b.bottom) / 2);
+		const dx = Math.abs(cx - x);
+		const dy = Math.abs(cy - y);
 
 		if (direction === 'left' || direction === 'right') {
 			return dx + Math.pow(dy, 2);
